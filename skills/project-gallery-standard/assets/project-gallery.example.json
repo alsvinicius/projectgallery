@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "project": {
+    "name": "Example app",
+    "familyName": "Example app",
+    "source": "https://example.test/example/app",
+    "path": "."
+  },
+  "services": [
+    {
+      "id": "web",
+      "name": "Web",
+      "portEnv": "WEB_PORT",
+      "interfaceUrl": "http://127.0.0.1:3000"
+    },
+    {
+      "id": "api",
+      "name": "API",
+      "portEnv": "API_PORT",
+      "healthPath": "/health"
+    }
+  ]
+}

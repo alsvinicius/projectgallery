@@ -1,0 +1,10 @@
+.PHONY: start stop
+
+# Implement these project-specific scripts so start launches every declared
+# service with its assigned environment port and returns after launch.
+start:
+	node scripts/start-services.mjs
+
+# Stop every service belonging to this checkout; make stop must be repeatable.
+stop:
+	node scripts/stop-services.mjs

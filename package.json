@@ -1,0 +1,12 @@
+{
+  "name": "project-gallery",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning --experimental-strip-types src/server.ts",
+    "test": "GALLERY_DATA_DIR=./.test-data node --disable-warning=ExperimentalWarning --experimental-strip-types --test",
+    "check": "node --disable-warning=ExperimentalWarning --experimental-strip-types --check src/server.ts && node --disable-warning=ExperimentalWarning --experimental-strip-types --check src/core.ts && node --disable-warning=ExperimentalWarning --experimental-strip-types --check src/scanner.ts && node --disable-warning=ExperimentalWarning --experimental-strip-types --check src/runner.ts && node --disable-warning=ExperimentalWarning --experimental-strip-types --check src/cli.ts && node scripts/check-ui-script.mjs"
+  }
+}

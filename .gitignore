@@ -1,0 +1,17 @@
+node_modules/
+.run/
+.test-data/
+dist/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+
+.playwright-mcp/
+
+# Local product-development records are not part of the public application.
+docs/product/
+docs/planning/
+docs/engineering/
+docs/revision-history.md
