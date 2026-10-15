@@ -4,7 +4,14 @@ This tutorial starts Project Gallery and guides you through reviewing one discov
 
 ## 1. Start the gallery
 
-From the repository root, run:
+Clone the repository if you have not already, then change into its directory:
+
+```sh
+git clone https://github.com/alsvinicius/projectgallery.git
+cd projectgallery
+```
+
+Run the gallery from the repository root:
 
 ```sh
 make start

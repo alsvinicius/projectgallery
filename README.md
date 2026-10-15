@@ -12,6 +12,15 @@ It also provides a versioned integration contract and a reusable project standar
 
 ## Run locally
 
+Clone the repository and change into it:
+
+```sh
+git clone https://github.com/alsvinicius/projectgallery.git
+cd projectgallery
+```
+
+Then start the gallery:
+
 ```sh
 make start
 ```
