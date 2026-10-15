@@ -20,4 +20,4 @@ This documentation follows Diataxis: each page serves a distinct task or learnin
 
 ## Reusable project standard
 
-- [Project Gallery Standard skill](../skills/project-gallery-standard/SKILL.md) — instructions for adapting or creating a compatible project.
+- [Project Gallery Standard skill](../.agents/skills/project-gallery-standard/SKILL.md) — instructions for adapting or creating a compatible project.

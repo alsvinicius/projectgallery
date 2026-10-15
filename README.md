@@ -35,7 +35,7 @@ Stop the gallery with `make stop`. Managed project services keep running until y
 - [Operate the gallery](docs/diataxis/how-to/use-gallery.md)
 - [Integration contract v1](docs/diataxis/reference/integration-contract-v1.md)
 - [Architecture and design](docs/diataxis/explanation/architecture.md)
-- [Project Gallery Standard skill](skills/project-gallery-standard/SKILL.md)
+- [Project Gallery Standard skill](.agents/skills/project-gallery-standard/SKILL.md)
 - [Documentation index](docs/README.md)
 
 ## Development

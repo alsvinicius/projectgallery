@@ -32,7 +32,7 @@ Open **Approvals**. Use **Add** or **Ignore** on a candidate without expanding i
 
 Adding a candidate does not start it. Quick add creates a basic `PORT` service definition; edit the instance later if the project uses multiple services or a different port variable. Use **Refresh discovery** to scan the configured roots again.
 
-For a reliable start, make sure the project's `make start` and `make stop` targets manage all of its services and read the assigned port variables. In the expanded review form, replace the default service with every service that listens on a TCP port. For each service, use a distinct `portEnv` such as `WEB_PORT` or `API_PORT`. The gallery passes the allocated values to both Make targets. See the [version 1 contract](../reference/integration-contract-v1.md) and the [example Makefile](../../../skills/project-gallery-standard/assets/Makefile.example).
+For a reliable start, make sure the project's `make start` and `make stop` targets manage all of its services and read the assigned port variables. In the expanded review form, replace the default service with every service that listens on a TCP port. For each service, use a distinct `portEnv` such as `WEB_PORT` or `API_PORT`. The gallery passes the allocated values to both Make targets. See the [version 1 contract](../reference/integration-contract-v1.md) and the [example Makefile](../../../.agents/skills/project-gallery-standard/assets/Makefile.example).
 
 ## Start, access, and stop an instance
 
@@ -42,7 +42,7 @@ Choose **Stop** on the instance to run its declared stop command. To stop only t
 
 ## Register a project outside the discovery roots
 
-For a new project or one outside the configured roots, add the [example manifest](../../../skills/project-gallery-standard/assets/project-gallery.example.json) to its root and adapt it to list every service. Implement `make start` and `make stop` so they use each manifest `portEnv`. The [Project Gallery Standard](../../../skills/project-gallery-standard/SKILL.md) gives the full checklist.
+For a new project or one outside the configured roots, add the [example manifest](../../../.agents/skills/project-gallery-standard/assets/project-gallery.example.json) to its root and adapt it to list every service. Implement `make start` and `make stop` so they use each manifest `portEnv`. The [Project Gallery Standard](../../../.agents/skills/project-gallery-standard/SKILL.md) gives the full checklist.
 
 Start Project Gallery and run its CLI from the project directory:
 
