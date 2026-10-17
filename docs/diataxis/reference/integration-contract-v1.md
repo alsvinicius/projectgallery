@@ -46,7 +46,7 @@ The project root contains a UTF-8 JSON file named `project-gallery.json`.
 | `services[].interfaceUrl` | Optional | Local HTTP(S) browser interface URL. The gallery substitutes the allocated port when opening it. |
 | `services[].healthPath` | Optional | HTTP path polled to detect readiness. |
 
-The gallery allocates a stable, unique local port to every service. It exports each allocated value using the service's `portEnv` when invoking both `make start` and `make stop`. Every declared service must use that variable instead of a hard-coded port.
+The gallery allocates a stable, unique local port to every service. It exports each allocated value using the service's `portEnv` when invoking both `make start` and `make stop`, and writes the same assignments to `.project-gallery.mk` in the project root. Include that generated file in the project's Makefile with `-include .project-gallery.mk`; this keeps direct `make` commands in the project directory aligned with the catalogue. The gallery refreshes the file on registration, when it starts, and after a port reassignment. Every declared service must use that variable instead of a hard-coded port. Add `.project-gallery.mk` to `.gitignore`.
 
 The lifecycle commands are `make start` and `make stop`. Start must launch every declared service and return control while they remain active. Stop must stop all services for the checkout and be safe to repeat. Gallery shutdown does not stop managed services.
 

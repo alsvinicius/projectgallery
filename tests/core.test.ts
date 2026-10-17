@@ -33,6 +33,12 @@ test('valid registration is idempotent and keeps stable unique ports', () => {
   assert.equal(a.familyId, b.familyId);
   assert.equal(listFamilies().filter((item: any) => item.id === a.familyId).length, 2);
   assert.equal((db.prepare('SELECT name FROM families WHERE id=?').get(a.familyId) as any).name, 'Shared family');
+  const changed = register({ name: 'App one', path: first, familyName: 'Shared family', source: 'https://example.test/repo.git', services: [
+    { id: 'worker', name: 'Worker', portEnv: 'WORKER_PORT' },
+    { id: 'web', name: 'Web renamed', portEnv: 'WEB_PORT' },
+  ] });
+  assert.equal(changed.services.find((service: any) => service.id === 'web')?.port, a.services[0].port);
+  assert.notEqual(changed.services.find((service: any) => service.id === 'worker')?.port, b.services[0].port);
 });
 
 test('invalid registration makes no partial database change', () => {
@@ -102,7 +108,12 @@ test('versioned local API authenticates and services survive a gallery restart',
     const uiState: any = await (await fetch(`http://127.0.0.1:${galleryPort}/ui/state`)).json();
     assert.equal(JSON.parse(uiState.families[0].services)[0].interfaceUrl, `http://127.0.0.1:${servicePort}/dashboard`);
     const start = await fetch(`http://127.0.0.1:${galleryPort}/ui/instances/${instanceId}/start`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-    assert.equal(start.status, 200); serviceStarted = true;
+    assert.equal(start.status, 202); serviceStarted = true;
+    for (let i = 0; i < 100; i++) {
+      const current: any = await (await fetch(`http://127.0.0.1:${galleryPort}/ui/state`)).json();
+      if (current.families.find((family: any) => family.instance_id === instanceId)?.status === 'active') break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     assert.equal((await fetch(`http://127.0.0.1:${servicePort}`)).status, 200);
     await stopGallery();
     assert.equal((await fetch(`http://127.0.0.1:${servicePort}`)).status, 200, 'project service should outlive gallery shutdown');
@@ -119,7 +130,7 @@ test('versioned local API authenticates and services survive a gallery restart',
 
 test('gallery passes allocated service ports to both start and stop commands', async () => {
   const { createServer } = await import('node:net');
-  const { startInstance, stopInstance } = await import('../src/runner.ts');
+  const { startInstance, stopInstance, reconcile } = await import('../src/runner.ts');
   const project = join(scratch, 'runner-fixture'); mkdirSync(project);
   const available = await new Promise<number>((resolve, reject) => { const server = createServer(); server.once('error', reject); server.listen(0, '127.0.0.1', () => { const address = server.address(); if (!address || typeof address === 'string') return reject(new Error('No port')); server.close(() => resolve(address.port)); }); });
   const secondPort = await new Promise<number>((resolve, reject) => { const server = createServer(); server.once('error', reject); server.listen(0, '127.0.0.1', () => { const address = server.address(); if (!address || typeof address === 'string') return reject(new Error('No port')); server.close(() => resolve(address.port)); }); });
@@ -130,11 +141,13 @@ test('gallery passes allocated service ports to both start and stop commands', a
   const registered = register({ name: 'Runner fixture', path: project, services: [{ id: 'web', name: 'Web', portEnv: 'WEB_PORT' }] });
   try {
     const allocatedPort = registered.services[0].port;
+    assert.match(readFileSync(join(project, '.project-gallery.mk'), 'utf8'), new RegExp(`WEB_PORT := ${allocatedPort}`));
     const alternatePort = allocatedPort === available ? secondPort : available;
     const blocker = createServer(); await new Promise<void>((resolve, reject) => { blocker.once('error', reject); blocker.listen(allocatedPort, '127.0.0.1', () => resolve()); });
     await assert.rejects(startInstance(registered.id), /já está ocupada/);
     await new Promise<void>((resolve) => blocker.close(() => resolve()));
     const { reassign } = await import('../src/runner.ts'); await reassign(`${registered.id}:web`, alternatePort);
+    assert.match(readFileSync(join(project, '.project-gallery.mk'), 'utf8'), new RegExp(`WEB_PORT := ${alternatePort}`));
     assert.equal((db.prepare('SELECT port FROM services WHERE instance_id=?').get(registered.id) as any).port, alternatePort);
     const started = await startInstance(registered.id);
     assert.equal(started.status, 'active');
@@ -144,5 +157,11 @@ test('gallery passes allocated service ports to both start and stop commands', a
     assert.equal(readFileSync(join(project, '.stop-port'), 'utf8'), String(alternatePort), 'stop command must receive the allocated port');
     let closed = false; for (let i = 0; i < 20; i++) { try { await fetch(`http://127.0.0.1:${alternatePort}`, { signal: AbortSignal.timeout(100) }); await new Promise((resolve) => setTimeout(resolve, 50)); } catch { closed = true; break; } }
     assert.equal(closed, true, 'service should stop after explicit request');
+    const external = createServer(); await new Promise<void>((resolve, reject) => { external.once('error', reject); external.listen(alternatePort, '127.0.0.1', () => resolve()); });
+    try {
+      await reconcile();
+      assert.equal((db.prepare('SELECT status FROM instances WHERE id=?').get(registered.id) as any).status, 'active', 'occupied assigned port should reveal a service started outside the gallery');
+      assert.equal((await stopInstance(registered.id)).status, 'stopped', 'the stop action should be available for the detected external service');
+    } finally { await new Promise<void>((resolve) => external.close(() => resolve())); }
   } finally { settings.portMin = previousMin; settings.portMax = previousMax; }
 });

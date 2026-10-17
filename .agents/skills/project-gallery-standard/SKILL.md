@@ -11,10 +11,11 @@ Use this skill when adding a project to the local Project Gallery or when establ
 
 1. Keep a `project-gallery.json` file at the project root.
 2. Provide `make start` to start every declared service and `make stop` to stop every service for this project instance. Both targets must be repeatable. Start must return control after services are launched, while those services continue running after the gallery server closes.
-3. Read each service port from the exact environment variable declared in the manifest in both `make start` and `make stop`. Bind local development services to `127.0.0.1` unless the project's local networking needs require otherwise.
-4. Declare every service that uses a TCP port, including frontend, backend, workers with HTTP endpoints, and local infrastructure. Give each service a stable ID and a distinct port environment variable.
-5. Declare an interface URL only for a browser interface. The gallery adjusts its port to the assigned value when opening it.
-6. Do not put credentials, gallery tokens, or machine-specific absolute paths in the manifest.
+3. Include `-include .project-gallery.mk` in the project's Makefile. The gallery writes this generated, ignored file in the project root with the catalogue's assigned port values. This makes `make start`, `make stop`, and other Make targets use the same ports whether invoked by the gallery or directly from the project directory. Never replace an assigned value with a fallback when the generated file is present; fail clearly if a required variable is missing.
+4. Read each service port from the exact environment variable declared in the manifest in both `make start` and `make stop`. Bind local development services to `127.0.0.1` unless the project's local networking needs require otherwise. Direct terminal use should run the project's Make targets from its root so the generated assignments are applied.
+5. Declare every service that uses a TCP port, including frontend, backend, workers with HTTP endpoints, and local infrastructure. Give each service a stable ID and a distinct port environment variable.
+6. Declare an interface URL only for a browser interface. The gallery adjusts its port to the assigned value when opening it.
+7. Do not put credentials, gallery tokens, or machine-specific absolute paths in the manifest.
 
 ## Manifest version 1
 
@@ -63,6 +64,7 @@ The client reads the local token file itself and does not print or copy the toke
 ## Verify before handoff
 
 - Run `make start` and confirm each declared port is accepting connections.
+- Run the same `make start` from the project directory with the gallery closed; confirm it uses the ports listed by the catalogue.
 - Confirm each service reads the assigned environment variable rather than hard-coding a port.
 - Run `make stop`; confirm all services for this instance stop.
 - Register the project and confirm each service has a different stable port in the gallery.

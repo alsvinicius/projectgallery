@@ -4,7 +4,7 @@
 
 The project root contains `project-gallery.json`, encoded as UTF-8 JSON. The top-level `version` is the integer `1`. `project.name` and `services` are required. `project.path` defaults to the current directory; relative paths resolve from the working directory used by the CLI. `project.familyName` defaults to the project name. `project.source` is an optional Git origin used for family grouping.
 
-Each service has a stable `id`, display `name`, and `portEnv`. Optional fields are `interfaceUrl` and `healthPath`. The gallery allocates one stable, unique local port to each registered service and exports it under `portEnv` when running `make start`. The assigned port is shown in the local gallery and returned by the registration API.
+Each service has a stable `id`, display `name`, and `portEnv`. Optional fields are `interfaceUrl` and `healthPath`. The gallery allocates one stable, unique local port to each registered service, exports it under `portEnv` for lifecycle commands, and writes the same values into `.project-gallery.mk` in the project root. The assigned port is shown in the local gallery and returned by the registration API. Include that generated file from the project's Makefile so commands run directly from the project directory use the catalogue values too. Port reassignments update the generated file.
 
 The gallery currently stores lifecycle commands as `make start` and `make stop`. Both targets must operate on all services belonging to the checkout. `make stop` must be safe to repeat. The gallery invokes fixed argument vectors from the registered manifest/configuration without shell interpolation.
 

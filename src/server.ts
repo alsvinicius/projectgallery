@@ -2,21 +2,39 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { authorized, db, dataDir, ensureFamily, familyOptions, listCandidates, listFamilies, register, reviewCandidate, settings } from './core.ts';
+import { authorized, db, dataDir, ensureFamily, familyOptions, listCandidates, listFamilies, register, reviewCandidate, setFavorite, settings, syncPortMakefiles } from './core.ts';
 import { discover } from './scanner.ts';
-import { reconcile, reassign, startInstance, stopInstance } from './runner.ts';
+import { beginStartInstance, cancelStartInstance, isReconciling, reconcile, reassign, startOperation, stopInstance } from './runner.ts';
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const html = readFileSync(join(root, 'public/index.html'));
+const favicon = readFileSync(join(root, 'public/favicon.svg'));
 function send(res: any, status: number, body: unknown) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); }
 async function body(req: any) { let raw = ''; for await (const chunk of req) { raw += chunk; if (raw.length > 1_000_000) throw new Error('Corpo da requisição muito grande.'); } return raw ? JSON.parse(raw) : {}; }
 function safeUiPost(req: any) {
   const origin = req.headers.origin;
   if (!origin) return true;
-  try { return new URL(origin).host === req.headers.host && new URL(origin).hostname === '127.0.0.1'; } catch { return false; }
+  try {
+    const parsed = new URL(origin);
+    const host = parsed.hostname.replace(/^\[|\]$/g, '');
+    const parts = host.split('.').map(Number);
+    const tailnetHost = parts.length === 4 && parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)
+      && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127;
+    return parsed.host === req.headers.host && (host === '127.0.0.1' || host === 'localhost' || tailnetHost);
+  } catch { return false; }
+}
+function isLoopback(address: string) { return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'; }
+function isTailnetAddress(address: string) {
+  const ipv4 = address.replace(/^::ffff:/i, '');
+  const parts = ipv4.split('.').map(Number);
+  return parts.length === 4 && parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)
+    && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127;
 }
 const server = createServer(async (req, res) => {
+  const peer = req.socket.remoteAddress || '';
+  if (!isLoopback(peer) && !isTailnetAddress(peer)) return send(res, 403, { error: 'Acesso permitido apenas pelo notebook ou pelo Tailscale.' });
   const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
   if (url.pathname === '/api/v1/health' && req.method === 'GET') return send(res, 200, { status: 'ok', version: 1 });
+  if (url.pathname === '/favicon.svg' && req.method === 'GET') { res.writeHead(200, { 'content-type': 'image/svg+xml; charset=utf-8', 'cache-control': 'public, max-age=86400', 'x-content-type-options': 'nosniff' }); return res.end(favicon); }
   if (url.pathname.startsWith('/api/v1/')) {
     if (req.socket.remoteAddress !== '127.0.0.1' && req.socket.remoteAddress !== '::1' && req.socket.remoteAddress !== '::ffff:127.0.0.1') return send(res, 403, { error: 'API aceita apenas conexões locais.' });
     if (!authorized(req)) return send(res, 401, { error: 'Bearer token ausente ou inválido.' });
@@ -26,11 +44,12 @@ const server = createServer(async (req, res) => {
       return send(res, 404, { error: 'Rota não encontrada.' });
     } catch (error) { return send(res, 400, { error: error instanceof Error ? error.message : 'Requisição inválida.' }); }
   }
-  if (['/', '/gallery', '/approvals'].includes(url.pathname) && req.method === 'GET') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'" }); return res.end(html); }
+  if (['/', '/gallery', '/favorites', '/approvals'].includes(url.pathname) && req.method === 'GET') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'" }); return res.end(html); }
   if (url.pathname.startsWith('/ui/')) {
     if (!safeUiPost(req) && req.method !== 'GET') return send(res, 403, { error: 'Origem não permitida.' });
     try {
-      if (url.pathname === '/ui/state' && req.method === 'GET') return send(res, 200, { families: listFamilies(), candidates: listCandidates(), familyOptions: familyOptions() });
+      if (url.pathname === '/ui/state' && req.method === 'GET') { void reconcile().catch(() => {}); const families = listFamilies(); return send(res, 200, { families, candidates: listCandidates(), familyOptions: familyOptions(), operations: families.map((f: any) => f.instance_id).filter(Boolean).map((id: string) => startOperation(id)).filter(Boolean), reconciling: isReconciling() }); }
+      if (url.pathname === '/ui/favorite' && req.method === 'POST') { const input = await body(req); return send(res, 200, setFavorite(String(input.id || ''), input.favorite === true)); }
       if (url.pathname === '/ui/discover' && req.method === 'POST') return send(res, 200, { discovered: discover() });
       if (url.pathname === '/ui/review' && req.method === 'POST') {
         const input = await body(req);
@@ -50,7 +69,9 @@ const server = createServer(async (req, res) => {
       }
       if (url.pathname === '/ui/family' && req.method === 'POST') { const input = await body(req); return send(res, 200, { familyId: ensureFamily(String(input.name || '').trim()) }); }
       const startMatch = url.pathname.match(/^\/ui\/instances\/([^/]+)\/start$/);
-      if (startMatch && req.method === 'POST') return send(res, 200, await startInstance(decodeURIComponent(startMatch[1])));
+      if (startMatch && req.method === 'POST') return send(res, 202, await beginStartInstance(decodeURIComponent(startMatch[1])));
+      const cancelMatch = url.pathname.match(/^\/ui\/instances\/([^/]+)\/cancel-start$/);
+      if (cancelMatch && req.method === 'POST') return send(res, 202, await cancelStartInstance(decodeURIComponent(cancelMatch[1])));
       const stopMatch = url.pathname.match(/^\/ui\/instances\/([^/]+)\/stop$/);
       if (stopMatch && req.method === 'POST') return send(res, 200, await stopInstance(decodeURIComponent(stopMatch[1])));
       const portMatch = url.pathname.match(/^\/ui\/services\/([^/]+)\/port$/);
@@ -76,7 +97,10 @@ const server = createServer(async (req, res) => {
   }
   send(res, 404, { error: 'Não encontrado.' });
 });
-await reconcile();
+syncPortMakefiles();
+void reconcile().catch(() => {});
+const reconcileTimer = setInterval(() => { void reconcile().catch(() => {}); }, 3000);
+reconcileTimer.unref();
 discover();
-server.listen(settings.serverPort, '127.0.0.1', () => console.log(`Galeria local em http://127.0.0.1:${settings.serverPort}; dados em ${dataDir}`));
+server.listen(settings.serverPort, '127.0.0.1', () => console.log(`Galeria disponível localmente e no Tailscale na porta ${settings.serverPort}; dados em ${dataDir}`));
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { try { db.close(); } finally { server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 2000).unref(); } });

@@ -1,5 +1,9 @@
 .PHONY: start stop
 
+# The gallery refreshes this generated file when a project is registered or
+# its ports change. It also applies when make is run from this directory.
+-include .project-gallery.mk
+
 # Implement these project-specific scripts so start launches every declared
 # service with its assigned environment port and returns after launch.
 start:

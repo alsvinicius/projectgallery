@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { chmodSync, mkdirSync, readFileSync, writeFileSync, existsSync, realpathSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync, existsSync, realpathSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS services(id TEXT PRIMARY KEY, instance_id TEXT NOT NU
 CREATE TABLE IF NOT EXISTS candidates(path TEXT PRIMARY KEY, name TEXT NOT NULL, source TEXT, evidence TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', family_id TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 PRAGMA user_version=1;`);
+if (!(db.prepare('PRAGMA table_info(families)').all() as any[]).some((column) => column.name === 'favorite')) {
+  db.exec('ALTER TABLE families ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0');
+}
 db.exec('PRAGMA foreign_keys=ON');
 export function canonicalPath(path: string): string {
   const real = realpathSync(path);
@@ -34,9 +37,14 @@ export function canonicalPath(path: string): string {
   return real;
 }
 export function listFamilies() {
-  return db.prepare(`SELECT f.id,f.name,f.source,i.id instance_id,i.name instance_name,i.path,i.status,i.pid,i.last_error,i.interface_url,
+  return db.prepare(`SELECT f.id,f.name,f.source,f.favorite,i.id instance_id,i.name instance_name,i.path,i.status,i.pid,i.last_error,i.interface_url,
     (SELECT json_group_array(json_object('id',s.id,'key',s.service_key,'name',s.name,'port',s.port,'interfaceUrl',s.interface_url)) FROM services s WHERE s.instance_id=i.id) services
     FROM families f LEFT JOIN instances i ON i.family_id=f.id ORDER BY f.name,i.name`).all();
+}
+export function setFavorite(id: string, favorite: boolean) {
+  const result = db.prepare('UPDATE families SET favorite=? WHERE id=?').run(favorite ? 1 : 0, id);
+  if (!result.changes) throw new Error('Projeto não encontrado.');
+  return { id, favorite };
 }
 export function listCandidates() { return db.prepare("SELECT path,name,source,evidence,status,family_id FROM candidates WHERE status='pending' ORDER BY name").all(); }
 function normalizedSource(source?: string) { return source?.trim().replace(/\.git$/, '').replace(/\/$/, '').toLowerCase() || null; }
@@ -44,8 +52,11 @@ export function register(input: InstanceInput) {
   if (!input || typeof input.name !== 'string' || !input.name.trim() || !Array.isArray(input.services) || !input.services.length) throw new Error('name e ao menos um service são obrigatórios.');
   const path = canonicalPath(input.path);
   const services = input.services;
+  const portEnvs = new Set<string>();
   for (const s of services) {
     if (!/^[a-zA-Z][\w-]*$/.test(s.id) || !/^[A-Z_][A-Z0-9_]*$/.test(s.portEnv)) throw new Error(`Serviço inválido: ${s.id || '(sem id)'}.`);
+    if (portEnvs.has(s.portEnv)) throw new Error(`Cada serviço precisa de uma variável portEnv própria: ${s.portEnv}.`);
+    portEnvs.add(s.portEnv);
     if (s.interfaceUrl) { const url = new URL(s.interfaceUrl); if (!['127.0.0.1', 'localhost', '::1'].includes(url.hostname) || !['http:', 'https:'].includes(url.protocol)) throw new Error('A interface deve usar uma URL HTTP local.'); }
     if (s.healthPath && (!s.healthPath.startsWith('/') || /\s/.test(s.healthPath))) throw new Error(`healthPath inválido para ${s.id}.`);
   }
@@ -74,8 +85,13 @@ export function register(input: InstanceInput) {
   const selectedFamilyDetails = selectedFamily ? db.prepare('SELECT name FROM families WHERE id=?').get(selectedFamily.id) as any : null;
   const familyName = currentFamily?.name || selectedFamilyDetails?.name || family?.name || manualFamily?.name || requestedFamilyName;
   const existingPorts = new Set((db.prepare('SELECT port FROM services WHERE instance_id<>?').all(id) as any[]).map((x) => x.port));
+  const previousPorts = new Map(current ? getServices(id).map((service) => [service.service_key, service.port]) : []);
+  const reusablePorts = new Map([...previousPorts].filter(([, previous]) => previous >= settings.portMin && previous <= settings.portMax && previous !== settings.serverPort && !existingPorts.has(previous)));
+  for (const previous of reusablePorts.values()) existingPorts.add(previous);
   let port = settings.portMin;
   const assigned = services.map((service) => {
+    const previous = reusablePorts.get(service.id);
+    if (previous) return { ...service, port: previous };
     while (existingPorts.has(port) || port === settings.serverPort) port++;
     if (port > settings.portMax) throw new Error('A faixa de portas configurada está esgotada.');
     const row = { ...service, port: port++ }; existingPorts.add(row.port); return row;
@@ -93,8 +109,22 @@ export function register(input: InstanceInput) {
     if (input.interfaceUrl) db.prepare('UPDATE instances SET interface_url=? WHERE id=?').run(input.interfaceUrl, id);
     db.prepare("UPDATE candidates SET status='approved',family_id=?,updated_at=CURRENT_TIMESTAMP WHERE path=?").run(familyId, path);
     db.exec('COMMIT');
+    writePortMakefile(path, assigned);
     return { id, familyId, name: input.name, path, services: assigned };
   } catch (error) { db.exec('ROLLBACK'); throw error; }
+}
+function writePortMakefile(path: string, services: { portEnv: string; port: number }[]) {
+  const content = `# Generated by Project Gallery. Do not edit; reassign ports in the catalogue.\n${services.map((service) => `override export ${service.portEnv} := ${service.port}`).join('\n')}\n`;
+  const target = join(path, '.project-gallery.mk');
+  const temp = `${target}.${process.pid}.tmp`;
+  writeFileSync(temp, content, { mode: 0o600 });
+  renameSync(temp, target);
+}
+export function syncPortMakefiles() {
+  for (const instance of db.prepare('SELECT id,path FROM instances').all() as any[]) {
+    if (!existsSync(instance.path)) continue;
+    writePortMakefile(instance.path, getServices(instance.id).map((service) => ({ portEnv: service.port_env, port: service.port })));
+  }
 }
 export function reviewCandidate(path: string, action: 'ignore' | 'approve', data?: InstanceInput) {
   const candidate = db.prepare("SELECT * FROM candidates WHERE path=? AND status='pending'").get(path) as any;
@@ -114,7 +144,12 @@ export function reassignPort(serviceId: string, port: number) {
   if (!Number.isInteger(port) || port < settings.portMin || port > settings.portMax || port === settings.serverPort) throw new Error('Porta fora da faixa disponível.');
   const collision = db.prepare('SELECT id FROM services WHERE port=? AND id<>?').get(port, serviceId);
   if (collision) throw new Error('Essa porta já está reservada por outro serviço.');
+  const service = db.prepare('SELECT instance_id FROM services WHERE id=?').get(serviceId) as any;
+  if (!service) throw new Error('Serviço não encontrado.');
+  if (getInstance(service.instance_id).status !== 'stopped') throw new Error('Pare a instância antes de reatribuir a porta.');
   db.prepare('UPDATE services SET port=? WHERE id=?').run(port, serviceId);
+  const instance = getInstance(service.instance_id);
+  writePortMakefile(instance.path, getServices(instance.id).map((item) => ({ portEnv: item.port_env, port: item.port })));
 }
 export function addCandidate(candidate: { path: string; name: string; source: string | null; evidence: string[] }) {
   db.prepare("INSERT INTO candidates(path,name,source,evidence,status) VALUES(?,?,?,?,'pending') ON CONFLICT(path) DO UPDATE SET name=excluded.name,source=COALESCE(candidates.source,excluded.source),evidence=excluded.evidence,updated_at=CURRENT_TIMESTAMP WHERE candidates.status='pending'")

@@ -23,3 +23,11 @@ Project Gallery invokes project-owned lifecycle commands. A gallery process rest
 The web server binds to loopback and keeps its catalogue and token in a private user data directory. The registration API uses a generated bearer token. The browser interface and local project integrations can therefore share one machine-local service without exposing the catalogue as a network service by default.
 
 The boundary is intentionally local and single-user. Multi-user access, remote hosting, and distributed port coordination require a different trust and allocation model.
+
+## Interface material and state
+
+The interface uses three material themes: Chalk, Graphite and Workshop. Shared constructions give the shell a matte body, actions raised keys and information areas recessed readouts. Theme values supply surface and ink pairs; action colour is an explicit role shared by links and buttons. A running instance highlights frontend access when available, while an instance that can start highlights its start action.
+
+The browser reconciles collection records by stable family or candidate identity. Unchanged records retain their native DOM nodes, so periodic status checks preserve keyboard focus and open details. When a record changes, the replacement retains local form fields, disclosures, text selection and the command log reading position. Temporarily filtering a record hides its view without discarding its draft; removing the record from the server state discards that local view. Drafts are not saved to storage and do not survive page navigation or reload.
+
+Port and frontend edits use native modal dialogs and form submission. Browser validation runs before port requests; asynchronous failures stay inside the modal with the entered value available for retry.
